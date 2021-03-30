@@ -47,15 +47,25 @@ spec:
         release: {{ .Release.Name }}
 
     spec:
+      {{- if .Values.securityContext.enabled }}
+      securityContext:
+        fsGroup:    {{ .Values.securityContext.userId }}
+        runAsUser:  {{ .Values.securityContext.groupId }}
+      {{- end }}  
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.imageName }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-
+          {{- if .Values.s3 }}
+          envFrom:
+          - configMapRef:
+              name: {{ template "triton-inference-server.fullname" . }}-s3-config
+          {{- end }}
+          {{- if .Values.image.numGpus }}
           resources:
             limits:
               nvidia.com/gpu: {{ .Values.image.numGpus }}
-
+          {{- end }}
           args: ["tritonserver", "--model-store={{ .Values.image.modelRepositoryPath }}"]
 
           ports:
@@ -66,16 +76,28 @@ spec:
             - containerPort: 8002
               name: metrics
           livenessProbe:
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
             httpGet:
               path: /v2/health/live
               port: http
           readinessProbe:
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
             httpGet:
               path: /v2/health/ready
               port: http
-
-          securityContext:
-            runAsUser: 1000
-            fsGroup: 1000
+              
+          {{- if not .Values.s3 }}
+          volumeMounts:
+            - name: models-repository
+              mountPath: {{ .Values.image.modelRepositoryPath }}
+          {{- end }}
+        
+      {{- if not .Values.s3 }}
+      volumes:
+        - name: models-repository
+          emptyDir: {}
+      {{- end }}       
