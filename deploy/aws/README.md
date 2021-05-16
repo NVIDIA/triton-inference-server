@@ -53,7 +53,7 @@ metrics reported by the inference server.
 
 ## Installing Helm
 
-If you do not already have Helm installed in your Kubernetes cluster,
+If you do not already have Helm installed,
 executing the following steps from the [official helm install
 guide](https://helm.sh/docs/intro/install/) will
 give you a quick setup.

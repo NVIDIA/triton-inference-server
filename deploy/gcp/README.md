@@ -61,17 +61,15 @@ metrics reported by the inference server.
 
 ## Installing Helm
 
-If you do not already have Helm installed in your Kubernetes cluster,
+If you do not already have Helm installed,
 executing the following steps from the [official helm install
 guide](https://helm.sh/docs/intro/install/) will
 give you a quick setup.
 
-```
-$ curl https://raw.githubusercontent.com/helm/helm/master/scripts/get | bash
-$ kubectl create serviceaccount -n kube-system tiller
-serviceaccount/tiller created
-$ kubectl create clusterrolebinding tiller-cluster-rule --clusterrole=cluster-admin --serviceaccount=kube-system:tiller
-$ helm init --service-account tiller --wait
+```sh
+$ curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+$ chmod 700 get_helm.sh
+$ ./get_helm.sh
 ```
 
 ## Model Repository
