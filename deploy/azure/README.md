@@ -30,10 +30,6 @@
 
 # Kubernetes Deploy: Triton Inference Server Cluster
 
-**NOTE: The prometheus operator used in these instructions is not yet
-updated to work with 1.16.x versions of Google Kubernetes Engine
-(GKE). You must use a GKE 1.15.x version to avoid this issue.**
-
 A helm chart for installing a single cluster of Triton Inference
 Server is provided. By default the cluster contains a single instance
 of the inference server but the *replicaCount* configuration parameter
@@ -43,16 +39,12 @@ This guide assumes you already have a functional Kubernetes cluster
 and helm installed (see below for instructions on installing
 helm). Note the following requirements:
 
-* The helm chart deploys Prometheus and Grafana to collect and display Triton metrics. Your cluster must contain sufficient CPU resources to support these services. At a minimum you will likely require 2 CPU nodes with machine type of n1-standard-2 or greater.
+* The helm chart deploys Prometheus and Grafana to collect and display Triton metrics. To use this helm chart you must install Prpmetheus and Grafana in your cluster as described below and your cluster must contain sufficient CPU resourses to support these services.
 
 * If you want Triton Server to use GPUs for inferencing, your cluster
-must be configured to contain the desired number of GPU nodes with
-support for the NVIDIA driver and CUDA version required by the version
+must be configured to contain the desired number of GPU nodes (Azure NC series VMs recommended)
+with support for the NVIDIA driver and CUDA version required by the version
 of the inference server you are using.
-
-This helm chart is available from [Triton Inference Server
-GitHub](https://github.com/triton-inference-server/server) or from the
-[NVIDIA GPU Cloud (NGC)](https://ngc.nvidia.com).
 
 The steps below describe how to set-up a model repository, use helm to
 launch the inference server, and then send inference requests to the
@@ -77,73 +69,45 @@ $ ./get_helm.sh
 If you already have a model repository you may use that with this helm
 chart. If you do not have a model repository, you can checkout a local
 copy of the inference server source repository to create an example
-model repository::
+model repository:
 
-```
+```sh
 $ git clone https://github.com/triton-inference-server/server.git
 ```
 
 Triton Server needs a repository of models that it will make available
 for inferencing. For this example you will place the model repository
-in a Google Cloud Storage bucket.
+in an Azure Storage Container in an Azure Storage Account. Replace the value of `$AZURE_STORAGE_ACCOUNT` with the name of an Azure Storage Account you have access to.
 
-```
-$ gsutil mb gs://triton-inference-server-repository
+```sh
+$ AZURE_STORAGE_ACCOUNT=mystorageaccount
+$ AZURE_STORAGE_CONTAINER=triton-inference-server-repository
+
+$ az storage container create --name $AZURE_STORAGE_CONTAINER --account-name $AZURE_STORAGE_ACCOUNT
 ```
 
 Following the [QuickStart](../../docs/quickstart.md) download the
-example model repository to your system and copy it into the GCS
-bucket.
+example model repository to your system and copy it into the Azure Storage Container.
 
-```
-$ gsutil cp -r docs/examples/model_repository gs://triton-inference-server-repository/model_repository
-```
-
-### GCS Permissions
-
-Make sure the bucket permissions are set so that the inference server
-can access the model repository. If the bucket is public then no
-additional changes are needed and you can proceed to "Deploy
-Prometheus and Grafana" section.
-
-If bucket premissions need to be set with the
-GOOGLE_APPLICATION_CREDENTIALS environment variable then perform the
-following steps:
-
-* Generate Google service account JSON with proper permissions called
-  *gcp-creds.json*.
-
-* Create a Kubernetes secret from *gcp-creds.json*:
-
-```
-  $ kubectl create configmap gcpcreds --from-literal "project-id=myproject"
-  $ kubectl create secret generic gcpcreds --from-file gcp-creds.json
+```sh
+$ cd ./docs/examples
+$ az storage blob directory upload -c $AZURE_STORAGE_CONTAINER -d . -s model_repository --account-name $AZURE_STORAGE_ACCOUNT --recursive
 ```
 
-* Modify templates/deployment.yaml to include the
-  GOOGLE_APPLICATION_CREDENTIALS environment variable:
+### Azure Model Repository
+To load models from the Blob Storage Container, you need to convert the following Azure credentials to base64 format and add them to the Helm Chart's [values.yaml](./values.yaml)
 
-```
-    env:
-      - name: GOOGLE_APPLICATION_CREDENTIALS
-        value: /secret/gcp-creds.json
-```
-
-* Modify templates/deployment.yaml to mount the secret in a volume at
-  /secret:
-
-```
-    volumeMounts:
-      - name: vsecret
-        mountPath: "/secret"
-        readOnly: true
-    ...
-    volumes:
-    - name: vsecret
-      secret:
-        secretName: gcpcreds
+For `AZURE_STORAGE_ACCOUNT_NAME`:
+```sh
+$ echo -n $AZURE_STORAGE_ACCOUNT | base64
 ```
 
+For `AZURE_STORAGE_KEY`:
+```sh
+$ AZURE_STORAGE_KEY=`az storage account keys list -n $AZURE_STORAGE_ACCOUNT --query "[0].value"`
+
+$ echo -n $AZURE_STORAGE_KEY | base64
+```
 
 ## Deploy Prometheus and Grafana
 
@@ -280,9 +244,9 @@ CRDs](https://github.com/helm/charts/tree/master/stable/prometheus-operator#unin
 $ kubectl delete crd alertmanagers.monitoring.coreos.com servicemonitors.monitoring.coreos.com podmonitors.monitoring.coreos.com prometheuses.monitoring.coreos.com prometheusrules.monitoring.coreos.com
 ```
 
-You may also want to delete the GCS bucket you created to hold the
+You may also want to delete the Azure Blob Storage Container you created to hold the
 model repository.
 
-```
-$ gsutil rm -r gs://triton-inference-server-repository
+```sh
+$ az storage container delete -n $AZURE_STORAGE_CONTAINER --account-name $AZURE_STORAGE_ACCOUNT
 ```

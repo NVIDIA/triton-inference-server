@@ -39,10 +39,10 @@ This guide assumes you already have a functional Kubernetes cluster
 and helm installed (see below for instructions on installing
 helm). Note the following requirements:
 
-* The helm chart deploys Prometheus and Grafana to collect and display Triton metrics. To use this helm chart you must install Prpmetheus and Grafana in your cluster as described below and your cluster must contain sufficient CPU resourses to support these services. 
+* The helm chart deploys Prometheus and Grafana to collect and display Triton metrics. To use this helm chart you must install Prpmetheus and Grafana in your cluster as described below and your cluster must contain sufficient CPU resourses to support these services.
 
 * If you want Triton Server to use GPUs for inferencing, your cluster
-must be configured to contain the desired number of GPU nodes (EC2 G4 instances recommended) 
+must be configured to contain the desired number of GPU nodes (EC2 G4 instances recommended)
 with support for the NVIDIA driver and CUDA version required by the version
 of the inference server you are using.
 
@@ -53,17 +53,15 @@ metrics reported by the inference server.
 
 ## Installing Helm
 
-If you do not already have Helm installed in your Kubernetes cluster,
+If you do not already have Helm installed,
 executing the following steps from the [official helm install
 guide](https://helm.sh/docs/intro/install/) will
 give you a quick setup.
 
 ```
-$ curl https://raw.githubusercontent.com/helm/helm/master/scripts/get | bash
-$ kubectl create serviceaccount -n kube-system tiller
-serviceaccount/tiller created
-$ kubectl create clusterrolebinding tiller-cluster-rule --clusterrole=cluster-admin --serviceaccount=kube-system:tiller
-$ helm init --service-account tiller --wait
+$ curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+$ chmod 700 get_helm.sh
+$ ./get_helm.sh
 ```
 
 ## Model Repository
@@ -100,7 +98,7 @@ To load the model from the AWS S3, you need to convert the following AWS credent
 echo -n 'REGION' | base64
 ```
 ```
-echo -n 'SECRECT_KEY_ID' | base64
+echo -n 'SECRET_KEY_ID' | base64
 ```
 ```
 echo -n 'SECRET_ACCESS_KEY' | base64
