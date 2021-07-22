@@ -145,8 +145,7 @@ PlanBackend::Context::Context(
           name, gpu_device, max_batch_size, enable_pinned_input,
           enable_pinned_output, gather_kernel_buffer_threshold,
           std::move(metric_reporter)),
-      engine_(nullptr), is_shared_engine_(true), total_bindings_(0),
-      num_expected_bindings_(0),
+      engine_(nullptr), total_bindings_(0), num_expected_bindings_(0),
       use_output_copy_stream_(separate_output_stream),
       host_policy_(host_policy), host_policy_name_(host_policy_name)
 {
@@ -225,11 +224,6 @@ PlanBackend::Context::~Context()
       }
     }
     trt_context.second.cuda_graphs_.clear();
-
-    if (trt_context.second.context_ != nullptr) {
-      trt_context.second.context_->destroy();
-      trt_context.second.context_ = nullptr;
-    }
   }
 
   if (stream_ != nullptr) {
@@ -262,11 +256,6 @@ PlanBackend::Context::~Context()
       LOG_ERROR << "Failed to destroy cuda stream: " << cudaGetErrorString(err);
     }
     output_copy_stream_ = nullptr;
-  }
-
-  if ((engine_ != nullptr) && (!is_shared_engine_)) {
-    engine_->destroy();
-    engine_ = nullptr;
   }
 
   DestroyEventSet();
@@ -443,8 +432,7 @@ PlanBackend::CreateExecutionContexts(
           // 'nullptr' as hint, but keeping runtime as it can be used repeatedly
           if (is_dynamic) {
             if (eit->second.second != nullptr) {
-              eit->second.second->destroy();
-              eit->second.second = nullptr;
+              eit->second.second.reset();
             }
           } else {
             LOG_VERBOSE(1) << "Created new engine on GPU device " << gpu_device
@@ -521,7 +509,8 @@ PlanBackend::Context::InitOptimizationProfiles(
   // context creation. As currently triton supports one context per engine,
   // in order to set the specified profile_index, another context is created
   // and the previous context is destroyed.
-  auto default_trt_context = engine_->createExecutionContext();
+  std::shared_ptr<nvinfer1::IExecutionContext> default_trt_context(
+      engine_->createExecutionContext());
   if (default_trt_context == nullptr) {
     return Status(Status::Code::INTERNAL, "unable to create TensorRT context");
   }
@@ -540,8 +529,7 @@ PlanBackend::Context::InitOptimizationProfiles(
                 0, TensorRTContext(
                        "default", 0, num_expected_bindings_, EVENT_SET_COUNT))
             .first;
-    it->second.context_ = default_trt_context;
-    default_trt_context = nullptr;
+    it->second.context_ = std::move(default_trt_context);
     if (UseTensorRTv2API(engine_)) {
       // Store the profile dimensions and set binding dimensions to max dims for
       // later initializing the input bindings
@@ -578,16 +566,15 @@ PlanBackend::Context::InitOptimizationProfiles(
         continue;
       }
       if (profile_index == 0) {
-        res.first->second.context_ = default_trt_context;
-        default_trt_context = nullptr;
+        res.first->second.context_ = std::move(default_trt_context);
       } else {
-        res.first->second.context_ = engine_->createExecutionContext();
+        res.first->second.context_.reset(engine_->createExecutionContext());
         if (res.first->second.context_ == nullptr) {
           return Status(
               Status::Code::INTERNAL, "unable to create TensorRT context");
         }
-        if (!res.first->second.context_->setOptimizationProfile(
-                profile_index)) {
+        if (!res.first->second.context_->setOptimizationProfileAsync(
+                profile_index, stream_)) {
           return Status(
               Status::Code::INVALID_ARG,
               "Can not set the specified optimization profile " + profile_name +
@@ -619,7 +606,7 @@ PlanBackend::Context::InitOptimizationProfiles(
 
     // profile 0 is not specified
     if (default_trt_context != nullptr) {
-      default_trt_context->destroy();
+      default_trt_context.reset();
     }
   }
 
@@ -694,7 +681,6 @@ PlanBackend::CreateExecutionContext(
   auto eit = device_engines_.find(device_pair);
   const bool new_runtime = (eit->second.first == nullptr);
   if (eit->second.second == nullptr) {
-    context->is_shared_engine_ = false;
     RETURN_IF_ERROR(
         LoadPlan(model, dla_core_id, &eit->second.first, &context->engine_));
     LOG_VERBOSE(1) << "Created new engine on GPU device " << gpu_device
@@ -2291,20 +2277,19 @@ PlanBackend::Context::FindClosestCudaGraph(
 
 PlanBackend::~PlanBackend()
 {
-  // Must destory all TensorRT contexts before engine
+  // Must destroy all TensorRT contexts before engine
   contexts_.clear();
 
   for (auto& device_engine : device_engines_) {
     cudaSetDevice(device_engine.first.first);
     auto& runtime = device_engine.second.first;
     auto& engine = device_engine.second.second;
+    // Need to reset explicitly to ensure proper destruction order
     if (engine != nullptr) {
-      engine->destroy();
-      engine = nullptr;
+      engine.reset();
     }
     if (runtime != nullptr) {
-      runtime->destroy();
-      runtime = nullptr;
+      runtime.reset();
     }
   }
 }
